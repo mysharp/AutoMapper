@@ -92,7 +92,7 @@ namespace AutoMapper.Configuration
             return expression;
         }
 
-        internal class MemberConfigurationExpression : MemberConfigurationExpression<object, object, object>, IMemberConfigurationExpression
+        public class MemberConfigurationExpression : MemberConfigurationExpression<object, object, object>, IMemberConfigurationExpression
         {
             public MemberConfigurationExpression(MemberInfo destinationMember, Type sourceType)
                 : base(destinationMember, sourceType)
@@ -201,10 +201,9 @@ namespace AutoMapper.Configuration
 
         private void IncludeMembersCore(LambdaExpression[] memberExpressions)
         {
-            foreach(var member in memberExpressions)
+            foreach(var member in memberExpressions.Select(memberExpression => memberExpression.GetMember()).Where(member => member != null))
             {
-                member.EnsureMemberPath(nameof(memberExpressions));
-                ForSourceMemberCore(new MemberPath(member).First, o => o.DoNotValidate());
+                ForSourceMemberCore(member, o => o.DoNotValidate());
             }
             TypeMapActions.Add(tm => tm.IncludedMembers = memberExpressions);
         }

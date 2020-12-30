@@ -1,13 +1,12 @@
-using System.Collections;
-using System.Collections.Generic;
-using AutoMapper.Configuration.Internal;
 using Xunit;
 using Shouldly;
+using AutoMapper.Internal;
+using System;
+using System.Linq;
+using System.Linq.Expressions;
 
 namespace AutoMapper.UnitTests
 {
-    using Configuration;
-
     public class PrimitiveExtensionsTester
     {
         interface Interface
@@ -25,9 +24,26 @@ namespace AutoMapper.UnitTests
         }
 
         [Fact]
-        public void Should_find_explicitly_implemented_member()
+        public void Should_find_explicitly_implemented_member() => typeof(DestinationClass).GetFieldOrProperty("Value").ShouldNotBeNull();
+
+        [Fact]
+        public void GetMembersChain()
         {
-            PrimitiveHelper.GetFieldOrProperty(typeof(DestinationClass), "Value").ShouldNotBeNull();
+            Expression<Func<DateTime, DayOfWeek>> e = x => x.Date.AddDays(1).Date.AddHours(2).AddMinutes(2).Date.DayOfWeek;
+            var chain = e.GetMembersChain().Select(m => m.Name).ToArray();
+            chain.ShouldBe(new[] { "Date", "AddDays", "Date", "AddHours", "AddMinutes", "Date", "DayOfWeek" });
+        }
+        [Fact]
+        public void IsMemberPath()
+        {
+            Expression<Func<DateTime, DayOfWeek>> e = x => x.Date.AddDays(1).Date.AddHours(2).AddMinutes(2).Date.DayOfWeek;
+            e.IsMemberPath().ShouldBeFalse();
+            e = x => x.Date.Date.DayOfWeek;
+            e.IsMemberPath().ShouldBeTrue();
+            e = x => x.DayOfWeek;
+            e.IsMemberPath().ShouldBeTrue();
+            e = x => x.AddDays(1).Date.DayOfWeek;
+            e.IsMemberPath().ShouldBeFalse();
         }
     }
 }

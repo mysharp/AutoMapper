@@ -1,11 +1,25 @@
+using AutoMapper.Internal;
 using System;
 using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
 
 namespace AutoMapper.QueryableExtensions.Impl
 {
     public static class QueryMapperHelper
     {
+        public static Expression CheckCustomSource(this IMemberMap memberMap, ExpressionResolutionResult expressionResolutionResult, LetPropertyMaps letPropertyMaps)
+        {
+            var customSource = memberMap.ProjectToCustomSource;
+            if (customSource == null)
+            {
+                return expressionResolutionResult.ResolutionExpression;
+            }
+            return customSource.IsMemberPath() ?
+                customSource.ReplaceParameters(expressionResolutionResult.ResolutionExpression) :
+                letPropertyMaps.GetSubQueryMarker(customSource);
+        }
+
         public static PropertyMap GetPropertyMap(this IConfigurationProvider config, MemberInfo sourceMemberInfo, Type destinationMemberType)
         {
             var typeMap = config.CheckIfMapExists(sourceMemberInfo.DeclaringType, destinationMemberType);

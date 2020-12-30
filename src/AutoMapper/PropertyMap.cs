@@ -28,25 +28,8 @@ namespace AutoMapper
         public PropertyMap(PropertyMap inheritedMappedProperty, TypeMap typeMap)
             : this(inheritedMappedProperty.DestinationMember, typeMap) => ApplyInheritedPropertyMap(inheritedMappedProperty);
 
-        public PropertyMap(PropertyMap includedMemberMap, TypeMap typeMap, LambdaExpression expression) 
-            : this(includedMemberMap, typeMap) => ApplyIncludedMemberMap(includedMemberMap, expression);
-
-        private void ApplyIncludedMemberMap(PropertyMap includedMemberMap, LambdaExpression expression)
-        {
-            CustomSource = expression;
-            if(includedMemberMap._memberChain.Count > 0)
-            {
-                _memberChain = expression.Body.GetMembers().Select(e => e.Member).Concat(includedMemberMap._memberChain).ToList();
-            }
-            CustomMapExpression = CheckCustomSource(CustomMapExpression);
-        }
-
-        private LambdaExpression CheckCustomSource(LambdaExpression lambda) => CheckCustomSource(lambda, CustomSource);
-
-        public static LambdaExpression CheckCustomSource(LambdaExpression lambda, LambdaExpression customSource) =>
-            (lambda == null || customSource == null) ?
-                lambda :
-                Lambda(lambda.ReplaceParameters(customSource.Body), customSource.Parameters.Concat(lambda.Parameters.Skip(1)));
+        public PropertyMap(PropertyMap includedMemberMap, TypeMap typeMap, IncludedMember includedMember)
+            : this(includedMemberMap, typeMap) => IncludedMember = includedMember.Chain(includedMemberMap.IncludedMember);
 
         public override TypeMap TypeMap { get; }
         public MemberInfo DestinationMember { get; }
@@ -55,11 +38,11 @@ namespace AutoMapper
         public override Type DestinationType => DestinationMember.GetMemberType();
 
         public override IReadOnlyCollection<MemberInfo> SourceMembers => _memberChain;
-        public override LambdaExpression CustomSource { get; set; }
+        public override IncludedMember IncludedMember { get; }
         public override bool Inline { get; set; } = true;
         public override bool CanBeSet => ReflectionHelper.CanBeSet(DestinationMember);
         public override bool Ignored { get; set; }
-        public bool AllowNull { get; set; }
+        public override bool? AllowNull { get; set; }
         public int? MappingOrder { get; set; }
         public override LambdaExpression CustomMapFunction { get; set; }
         public override LambdaExpression Condition { get; set; }
@@ -87,15 +70,19 @@ namespace AutoMapper
             {
                 Ignored = true;
             }
-            CustomMapExpression = CustomMapExpression ?? inheritedMappedProperty.CustomMapExpression;
-            CustomMapFunction = CustomMapFunction ?? inheritedMappedProperty.CustomMapFunction;
-            Condition = Condition ?? inheritedMappedProperty.Condition;
-            PreCondition = PreCondition ?? inheritedMappedProperty.PreCondition;
-            NullSubstitute = NullSubstitute ?? inheritedMappedProperty.NullSubstitute;
-            MappingOrder = MappingOrder ?? inheritedMappedProperty.MappingOrder;
-            ValueResolverConfig = ValueResolverConfig ?? inheritedMappedProperty.ValueResolverConfig;
-            ValueConverterConfig = ValueConverterConfig ?? inheritedMappedProperty.ValueConverterConfig;
-            UseDestinationValue = UseDestinationValue ?? inheritedMappedProperty.UseDestinationValue;
+            if (!IsResolveConfigured)
+            {
+                CustomMapExpression = inheritedMappedProperty.CustomMapExpression;
+                CustomMapFunction = inheritedMappedProperty.CustomMapFunction;
+                ValueResolverConfig = inheritedMappedProperty.ValueResolverConfig;
+                ValueConverterConfig = inheritedMappedProperty.ValueConverterConfig;
+            }
+            AllowNull ??= inheritedMappedProperty.AllowNull;
+            Condition ??= inheritedMappedProperty.Condition;
+            PreCondition ??= inheritedMappedProperty.PreCondition;
+            NullSubstitute ??= inheritedMappedProperty.NullSubstitute;
+            MappingOrder ??= inheritedMappedProperty.MappingOrder;
+            UseDestinationValue ??= inheritedMappedProperty.UseDestinationValue;
             _valueTransformerConfigs.InsertRange(0, inheritedMappedProperty._valueTransformerConfigs);
             _memberChain = _memberChain.Count == 0 ? inheritedMappedProperty._memberChain : _memberChain;
         }

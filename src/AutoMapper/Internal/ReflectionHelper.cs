@@ -1,25 +1,46 @@
 using System;
 using System.Collections;
+using System.ComponentModel;
 using System.Collections.Generic;
-using System.Dynamic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Reflection.Emit;
 
 namespace AutoMapper.Internal
 {
-    using Configuration;
-
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static class ReflectionHelper
     {
-        public static bool CanBeSet(MemberInfo propertyOrField)
+        public static bool IsStatic(this FieldInfo fieldInfo) => fieldInfo?.IsStatic ?? false;
+
+        public static bool IsStatic(this PropertyInfo propertyInfo) => propertyInfo?.GetGetMethod(true)?.IsStatic
+                                                                       ?? propertyInfo?.GetSetMethod(true)?.IsStatic
+                                                                       ?? false;
+
+        public static bool IsStatic(this MemberInfo memberInfo) => (memberInfo as FieldInfo).IsStatic()
+                                                                   || (memberInfo as PropertyInfo).IsStatic()
+                                                                   || ((memberInfo as MethodInfo)?.IsStatic
+                                                                       ?? false);
+
+        public static bool IsPublic(this PropertyInfo propertyInfo) => (propertyInfo?.GetGetMethod(true)?.IsPublic ?? false)
+                                                                       || (propertyInfo?.GetSetMethod(true)?.IsPublic ?? false);
+
+        public static bool HasAnInaccessibleSetter(this PropertyInfo property)
         {
-            return propertyOrField is FieldInfo field ? 
-                        !field.IsInitOnly : 
-                        ((PropertyInfo)propertyOrField).CanWrite;
+            var setMethod = property.GetSetMethod(true);
+            return setMethod == null || setMethod.IsPrivate || setMethod.IsFamily;
         }
 
-        public static object GetDefaultValue(ParameterInfo parameter)
+        public static bool IsPublic(this MemberInfo memberInfo) => (memberInfo as FieldInfo)?.IsPublic ?? (memberInfo as PropertyInfo).IsPublic();
+
+        public static Type CreateType(this TypeBuilder type) => type.CreateTypeInfo().AsType();
+
+        public static bool Has<TAttribute>(this MemberInfo member) where TAttribute : Attribute => member.GetCustomAttribute<TAttribute>() != null;
+
+        public static bool CanBeSet(this MemberInfo propertyOrField) => propertyOrField is FieldInfo field ? !field.IsInitOnly : ((PropertyInfo)propertyOrField).CanWrite;
+
+        public static object GetDefaultValue(this ParameterInfo parameter)
         {
             if (parameter.DefaultValue == null && parameter.ParameterType.IsValueType)
             {
@@ -28,18 +49,14 @@ namespace AutoMapper.Internal
             return parameter.DefaultValue;
         }
 
-        public static object MapMember(ResolutionContext context, MemberInfo member, object value, object destination = null)
+        public static object MapMember(this ResolutionContext context, MemberInfo member, object value, object destination = null)
         {
             var memberType = GetMemberType(member);
             var destValue = destination == null ? null : GetMemberValue(member, destination);
             return context.Map(value, destValue, value?.GetType() ?? typeof(object), memberType, DefaultMemberMap.Instance);
         }
 
-        public static bool IsDynamic(object obj) => obj is IDynamicMetaObjectProvider;
-
-        public static bool IsDynamic(Type type) => typeof(IDynamicMetaObjectProvider).IsAssignableFrom(type);
-
-        public static void SetMemberValue(MemberInfo propertyOrField, object target, object value)
+        public static void SetMemberValue(this MemberInfo propertyOrField, object target, object value)
         {
             if (propertyOrField is PropertyInfo property)
             {
@@ -57,7 +74,7 @@ namespace AutoMapper.Internal
         private static ArgumentOutOfRangeException Expected(MemberInfo propertyOrField)
             => new ArgumentOutOfRangeException(nameof(propertyOrField), "Expected a property or field, not " + propertyOrField);
 
-        public static object GetMemberValue(MemberInfo propertyOrField, object target)
+        public static object GetMemberValue(this MemberInfo propertyOrField, object target)
         {
             if (propertyOrField is PropertyInfo property)
             {
@@ -70,13 +87,32 @@ namespace AutoMapper.Internal
             throw Expected(propertyOrField);
         }
 
-        public static IEnumerable<MemberInfo> GetMemberPath(Type type, string fullMemberName)
+        public static MemberInfo[] GetMemberPath(Type type, string fullMemberName)
         {
-            MemberInfo property = null;
-            foreach (var memberName in fullMemberName.Split('.'))
+            return GetMemberPathCore().ToArray();
+            IEnumerable<MemberInfo> GetMemberPathCore()
             {
-                var currentType = GetCurrentType(property, type);
-                yield return property = currentType.GetFieldOrProperty(memberName);
+                MemberInfo property = null;
+                foreach (var memberName in fullMemberName.Split('.'))
+                {
+                    var currentType = GetCurrentType(property, type);
+                    yield return property = currentType.GetFieldOrProperty(memberName);
+                }
+            }
+        }
+
+        public static MapMemberInfo[] GetMapMemberPath(Type type, string fullMemberName)
+        {
+            return GetMemberPathCore().ToArray();
+            IEnumerable<MapMemberInfo> GetMemberPathCore()
+            {
+                MemberInfo property = null;
+                foreach (var memberName in fullMemberName.Split('.'))
+                {
+                    var currentType = GetCurrentType(property, type);
+                    property = currentType.GetFieldOrProperty(memberName);
+                    yield return new MapMemberInfo(property, currentType);
+                }
             }
         }
 
@@ -88,14 +124,6 @@ namespace AutoMapper.Internal
                 memberType = memberType.GetTypeInfo().GenericTypeArguments[0];
             }
             return memberType;
-        }
-
-        public static MemberInfo GetFieldOrProperty(LambdaExpression expression)
-        {
-            var memberExpression = expression.Body as MemberExpression;
-            return memberExpression != null
-                ? memberExpression.Member
-                : throw new ArgumentOutOfRangeException(nameof(expression), "Expected a property/field access expression, not " + expression);
         }
 
         public static MemberInfo FindProperty(LambdaExpression lambdaExpression)
@@ -138,7 +166,7 @@ namespace AutoMapper.Internal
                 "Custom configuration for members is only supported for top-level individual members on a type.");
         }
 
-        public static Type GetMemberType(MemberInfo memberInfo)
+        public static Type GetMemberType(this MemberInfo memberInfo)
         {
             switch (memberInfo)
             {
@@ -153,32 +181,6 @@ namespace AutoMapper.Internal
                 default:
                     throw new ArgumentOutOfRangeException(nameof(memberInfo));
             }
-        }
-
-        /// <summary>
-        /// if targetType is oldType, method will return newType
-        /// if targetType is not oldType, method will return targetType
-        /// if targetType is generic type with oldType arguments, method will replace all oldType arguments on newType
-        /// </summary>
-        /// <param name="targetType"></param>
-        /// <param name="oldType"></param>
-        /// <param name="newType"></param>
-        /// <returns></returns>
-        public static Type ReplaceItemType(Type targetType, Type oldType, Type newType)
-        {
-            if (targetType == oldType)
-                return newType;
-
-            if (targetType.IsGenericType)
-            {
-                var genSubArgs = targetType.GetTypeInfo().GenericTypeArguments;
-                var newGenSubArgs = new Type[genSubArgs.Length];
-                for (var i = 0; i < genSubArgs.Length; i++)
-                    newGenSubArgs[i] = ReplaceItemType(genSubArgs[i], oldType, newType);
-                return targetType.GetGenericTypeDefinition().MakeGenericType(newGenSubArgs);
-            }
-
-            return targetType;
         }
     }
 }

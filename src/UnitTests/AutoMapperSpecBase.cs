@@ -4,6 +4,7 @@ using Xunit;
 namespace AutoMapper.UnitTests
 {
     using QueryableExtensions;
+    using Shouldly;
     using System.Collections.Generic;
     using System.Linq;
     using System.Linq.Expressions;
@@ -25,7 +26,7 @@ namespace AutoMapper.UnitTests
         protected abstract MapperConfiguration Configuration { get; }
         protected IConfigurationProvider ConfigProvider => Configuration;
 
-        protected IMapper Mapper => mapper ?? (mapper = Configuration.CreateMapper());
+        protected IMapper Mapper => mapper ??= Configuration.CreateMapper();
 
         protected TDestination Map<TDestination>(object source) => Mapper.Map<TDestination>(source);
 
@@ -74,6 +75,23 @@ namespace AutoMapper.UnitTests
             Cleanup();
         }
     }
-
+    class FirstOrDefaultCounter : ExpressionVisitor
+    {
+        public int Count;
+        protected override Expression VisitMethodCall(MethodCallExpression node)
+        {
+            if (node.Method.Name == "FirstOrDefault")
+            {
+                Count++;
+            }
+            return base.VisitMethodCall(node);
+        }
+        public static void Assert(IQueryable queryable, int count) => Assert(queryable.Expression, count);
+        public static void Assert(Expression expression, int count)
+        {
+            var firstOrDefault = new FirstOrDefaultCounter();
+            firstOrDefault.Visit(expression);
+            firstOrDefault.Count.ShouldBe(count);
+        }
+    }
 }
-
